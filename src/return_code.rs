@@ -3,6 +3,7 @@ pub enum Code {
     Good,
     NameErr,
     OutOfRange,
+    BadArguments,
     FunctionWithinFunctionErr,
     ClosingOfNonFunctionErr,
     LocalVariableNotInFunction,
