@@ -25,11 +25,13 @@ pub struct Builder {
     is_function_currently: bool,
     local_variables: Vec<u32>,
     local_variables_offset: Vec<u32>,
-    local_offset: u32
+    local_offset: u32,
+    func_args_order: Vec<String>,
+    syscall_args_ordering: Vec<String>
 }
 
-impl Builder {
-    pub fn new() -> Self {
+impl Default for Builder {
+    fn default() -> Self {
         Self {
             text: ASM_BASE_START.to_string(),
             bss: ASM_BASE_BSS.to_string(),
@@ -38,19 +40,28 @@ impl Builder {
             is_function_currently: false,
             local_variables: vec![],
             local_variables_offset: vec![],
-            local_offset: 0
+            local_offset: 0,
+            syscall_args_ordering: vec!["rax".to_string(), "rdi".to_string(), "rsi".to_string(), "rdx".to_string(), "r10".to_string(), "r8".to_string(), "r9".to_string(),],
+            func_args_order: vec!["edi".to_string(), "esi".to_string(), "edx".to_string(), "ecx".to_string(), "r8d".to_string(), "r9d".to_string()]
         }
+    }
+}
+impl Builder {
+    pub fn new() -> Self {
+        Builder::default()
     }
     pub fn new_program(start_function: &str) -> Self {
         Self {
             text: ASM_BASE_START.to_string().replace("_start", start_function),
-            bss: ASM_BASE_BSS.to_string(),
-            data: ASM_BASE_DATA.to_string(),
-            function_body: "".to_string(),
-            is_function_currently: false,
-            local_variables: vec![],
-            local_variables_offset: vec![],
-            local_offset: 0
+            ..Builder::default()
+        }
+    }
+    pub fn set_func_args_order(&mut self, order: Vec<String>) -> Return{
+        if order.len() == self.func_args_order.len(){
+            Return::new(format!("Length of order is not equal to base order, expected {} size got {} instead", order.len(), self.func_args_order.len()), Code::BadArguments)
+        } else {
+            self.func_args_order = order;
+            Return::new("".to_string(), Code::Good)
         }
     }
     fn add_line_text(&mut self, line: &str){
@@ -88,6 +99,8 @@ impl Builder {
         }
         self.is_function_currently = true;
         self.function_body += &*format!("{}:\n", function_name);
+        self.push("rbp");
+        self.mov("rbp", "rsp");
 
         Return::new("Everything Is Fine".to_string(), Code::Good)
     }
@@ -100,6 +113,7 @@ impl Builder {
         self.local_variables = vec![];
         self.local_variables_offset = vec![];
         self.is_function_currently = false;
+        self.pop("rbp");
         self.add_value_function("ret");
         self.add_line_text(&*self.function_body.clone());
         self.function_body = "".to_string();
@@ -173,12 +187,21 @@ impl Builder {
         self.new_string_literal(addr, value);
         self.add_line_data(&*format!(".len: equ $ - {}", addr))
     }
+    pub fn call_function(&mut self, function: &str, arguments: Vec<&str>){
+        let mut len = -1;
+        for argument in arguments {
+            len += 1;
+            let register = &*self.func_args_order.get(len as usize).unwrap().clone();
+            self.mov(register, argument);
+        }
+        self.call(function);
+    }
 
     // pub fn base(&mut self, arg1: &str, arg2: &str){}
     pub fn extern_add(&mut self, function_or_address: &str){
         self.add_line_text(&*format!("extern\t\t\t\t{}", function_or_address))
     }
-    pub fn syscall(&mut self){
+    pub fn new_syscall(&mut self){
         self.add_raw_asm1("syscall");
     }
     pub fn pop(&mut self, register: &str){
@@ -193,6 +216,18 @@ impl Builder {
     pub fn mov(&mut self, register: &str, value_or_register: &str){
         self.add_raw_asm3("mov", register, value_or_register);
     }
+     pub fn add(&mut self, register: &str, value_or_register: &str){
+         self.add_raw_asm3("add", register, value_or_register);
+     }
+    pub fn sub(&mut self, register: &str, value_or_register: &str){
+         self.add_raw_asm3("sub", register, value_or_register);
+     }
+    pub fn div(&mut self, register: &str, value_or_register: &str){
+         self.add_raw_asm3("div", register, value_or_register);
+     }
+    pub fn mul(&mut self, register: &str, value_or_register: &str){
+         self.add_raw_asm3("mul", register, value_or_register);
+     }
 
     pub fn add_raw_asm1(&mut self, op: &str){
         self.add_value_function(op)
@@ -211,54 +246,15 @@ impl Builder {
             self.add_value_function(&*format!("{}\t\t\t\t{}, {}", op, left, right))
         }
     }
-    pub fn syscall1(&mut self, arg1: &str){
-        self.mov("rax", arg1);
-        self.syscall()
-    }
-    pub fn syscall2(&mut self, arg1: &str, arg2: &str){
-        self.mov("rax", arg1);
-        self.mov("rdi", arg2);
-        self.syscall()
-    }
-    pub fn syscall3(&mut self, arg1: &str, arg2: &str, arg3: &str){
-        self.mov( "rax", arg1);
-        self.mov( "rdi", arg2);
-        self.mov( "rsi", arg3);
-        self.syscall()
-    }
-    pub fn syscall4(&mut self, arg1: &str, arg2: &str, arg3: &str, arg4: &str){
-        self.mov("rax", arg1);
-        self.mov("rdi", arg2);
-        self.mov("rsi", arg3);
-        self.mov("rdx", arg4);
-        self.syscall()
-    }
-    pub fn syscall5(&mut self, arg1: &str, arg2: &str, arg3: &str, arg4: &str, arg5: &str){
-        self.mov("rax", arg1);
-        self.mov("rdi", arg2);
-        self.mov("rsi", arg3);
-        self.mov("rdx", arg4);
-        self.mov("r10", arg5);
-        self.syscall()
-    }
-    pub fn syscall6(&mut self, arg1: &str, arg2: &str, arg3: &str, arg4: &str, arg5: &str, arg6: &str){
-        self.mov("rax", arg1);
-        self.mov("rdi", arg2);
-        self.mov("rsi", arg3);
-        self.mov("rdx", arg4);
-        self.mov("r10", arg5);
-        self.mov("r8", arg6);
-        self.syscall()
-    }
-    pub fn syscall7(&mut self, arg1: &str, arg2: &str, arg3: &str, arg4: &str, arg5: &str, arg6: &str, arg7: &str){
-        self.mov("rax", arg1);
-        self.mov( "rdi", arg2);
-        self.mov( "rsi", arg3);
-        self.mov( "rdx", arg4);
-        self.mov( "r10", arg5);
-        self.mov( "r8", arg6);
-        self.mov( "r9", arg7);
-        self.syscall()
+
+    pub fn syscall(&mut self, arguments: Vec<&str>){
+        let mut len = -1;
+        for arg in arguments {
+            len += 1;
+            let register = &*(self.syscall_args_ordering.get(len as usize).unwrap().clone() as String);
+            self.mov(register, arg);
+        }
+        self.new_syscall();
     }
 
     pub fn build(&mut self) -> String {
